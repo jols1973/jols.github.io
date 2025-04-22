@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Editor de Colores con Modificación Continua y Guardado en Formato Original</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+  }
+  .container {
+    display: flex;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  canvas {
+    border: 1px solid #ccc;
+    cursor: crosshair;
+    background: #fff;
+  }
+  .controls {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  input[type="color"],
+  input[type="text"] {
+    width: 150px;
+  }
+  .zoom-controls {
+    margin-top: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+  }
+  button {
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<h1>Editor de Colores de Imágenes</h1>
+<p>Selecciona una imagen, usa el zoom y arrastra para seleccionar colores con el gotero.</p>
+<input type="file" id="fileInput" accept="image/*" />
+
+<div class="container">
+  <div>
+    <canvas id="originalCanvas" width="600" height="400"></canvas>
+    <p style="text-align:center;">Imagen Original</p>
+    <div class="zoom-controls">
+      <button id="zoomIn">+</button>
+      <button id="zoomOut">-</button>
+    </div>
+  </div>
+  <div>
+    <canvas id="modifiedCanvas" width="600" height="400"></canvas>
+    <p style="text-align:center;">Imagen Modificada</p>
+  </div>
+</div>
+
+<div class="controls">
+  <label for="colorPicker">Color seleccionado:</label>
+  <input type="color" id="colorPicker" />
+
+  <label for="hexColor">Nuevo color (hexadecimal):</label>
+  <input type="text" id="hexColor" placeholder="#RRGGBB" />
+
+  <div style="display:flex; gap:10px; flex-wrap: wrap;">
+    <button id="saveBtn">Guardar Imagen</button>
+  </div>
+</div>
+
+<script>
+const originalCanvas = document.getElementById("originalCanvas");
+const modifiedCanvas = document.getElementById("modifiedCanvas");
+const ctxOriginal = originalCanvas.getContext("2d");
+const ctxModified = modifiedCanvas.getContext("2d");
+
+const canvasWidth = originalCanvas.width;
+const canvasHeight = originalCanvas.height;
+
+let originalImage = null;
+let selectedColor = null;
+let originalFileType = null; // mime type del archivo original
+
+let zoomLevel = 1;
+const zoomStep = 0.1;
+const minZoom = 0.1;
+const maxZoom = 5;
+
+// Variables para desplazamiento
+let offsetX = 0;
+let offsetY = 0;
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+
+// Variables para escala inicial para que la imagen quepa en el canvas
+let baseScale = 1;
+let imgDrawWidth = 0;
+let imgDrawHeight = 0;
+
+// Variable para guardar la imagen modificada en tamaño original (ImageData)
+let modifiedImageData = null;
+
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  originalFileType = file.type.toLowerCase();
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    originalImage = new Image();
+    originalImage.onload = () => {
+      baseScale = Math.min(
+        canvasWidth / originalImage.width,
+        canvasHeight / originalImage.height,
+        1
+      );
+
+      imgDrawWidth = originalImage.width * baseScale;
+      imgDrawHeight = originalImage.height * baseScale;
+
+      zoomLevel = 1;
+      offsetX = (canvasWidth - imgDrawWidth) / 2;
+      offsetY = (canvasHeight - imgDrawHeight) / 2;
+
+      modifiedCanvas.width = canvasWidth;
+      modifiedCanvas.height = canvasHeight;
+
+      drawOriginalImage();
+
+      // Inicializar la imagen modificada con la original (tamaño original)
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = originalImage.width;
+      tempCanvas.height = originalImage.height;
+      const tempCtx = tempCanvas.getContext("2d");
+      tempCtx.drawImage(originalImage, 0, 0);
+      modifiedImageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+
+      drawModifiedImageFromImageData();
+    };
+    originalImage.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+function drawOriginalImage() {
+  ctxOriginal.clearRect(0, 0, canvasWidth, canvasHeight);
+  if (!originalImage) return;
+
+  const scaledWidth = imgDrawWidth * zoomLevel;
+  const scaledHeight = imgDrawHeight * zoomLevel;
+
+  offsetX = Math.min(0, Math.max(offsetX, canvasWidth - scaledWidth));
+  offsetY = Math.min(0, Math.max(offsetY, canvasHeight - scaledHeight));
+
+  ctxOriginal.drawImage(
+    originalImage,
+    0,
+    0,
+    originalImage.width,
+    originalImage.height,
+    offsetX,
+    offsetY,
+    scaledWidth,
+    scaledHeight
+  );
+
+  ctxOriginal.fillStyle = "black";
+  ctxOriginal.font = "20px Arial";
+  ctxOriginal.fillText("Imagen Original", 10, 30);
+}
+
+function drawModifiedImageFromImageData() {
+  if (!modifiedImageData) return;
+
+  ctxModified.clearRect(0, 0, canvasWidth, canvasHeight);
+
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = modifiedImageData.width;
+  tempCanvas.height = modifiedImageData.height;
+  const tempCtx = tempCanvas.getContext("2d");
+  tempCtx.putImageData(modifiedImageData, 0, 0);
+
+  const scale = baseScale;
+  const w = modifiedImageData.width * scale;
+  const h = modifiedImageData.height * scale;
+  const x = (canvasWidth - w) / 2;
+  const y = (canvasHeight - h) / 2;
+
+  ctxModified.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, x, y, w, h);
+
+  ctxModified.fillStyle = "black";
+  ctxModified.font = "20px Arial";
+  ctxModified.fillText("Imagen Modificada", 10, 30);
+}
+
+originalCanvas.addEventListener("mousedown", (e) => {
+  isDragging = true;
+  dragStartX = e.clientX - offsetX;
+  dragStartY = e.clientY - offsetY;
+  originalCanvas.style.cursor = "grabbing";
+});
+
+window.addEventListener("mouseup", () => {
+  isDragging = false;
+  originalCanvas.style.cursor = "crosshair";
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!isDragging) return;
+  offsetX = e.clientX - dragStartX;
+  offsetY = e.clientY - dragStartY;
+  drawOriginalImage();
+});
+
+originalCanvas.addEventListener("click", (e) => {
+  if (!originalImage) return;
+
+  const rect = originalCanvas.getBoundingClientRect();
+  const canvasX = e.clientX - rect.left;
+  const canvasY = e.clientY - rect.top;
+
+  const imgX = (canvasX - offsetX) / (baseScale * zoomLevel);
+  const imgY = (canvasY - offsetY) / (baseScale * zoomLevel);
+
+  if (
+    imgX >= 0 &&
+    imgX < originalImage.width &&
+    imgY >= 0 &&
+    imgY < originalImage.height
+  ) {
+    const modScale = baseScale;
+    const modX = Math.floor(imgX * modScale + (canvasWidth - originalImage.width * modScale) / 2);
+    const modY = Math.floor(imgY * modScale + (canvasHeight - originalImage.height * modScale) / 2);
+
+    if (
+      modX >= 0 &&
+      modX < modifiedCanvas.width &&
+      modY >= 0 &&
+      modY < modifiedCanvas.height
+    ) {
+      const pixel = ctxModified.getImageData(modX, modY, 1, 1).data;
+      selectedColor = `#${(
+        (1 << 24) |
+        (pixel[0] << 16) |
+        (pixel[1] << 8) |
+        pixel[2]
+      )
+        .toString(16)
+        .slice(1)}`;
+
+      document.getElementById("colorPicker").value = selectedColor;
+      document.getElementById("hexColor").value = selectedColor;
+    }
+  }
+});
+
+document.getElementById("hexColor").addEventListener("input", (e) => {
+  const newColor = e.target.value;
+  if (/^#[0-9A-F]{6}$/i.test(newColor)) {
+    replaceColor(newColor);
+  }
+});
+
+function replaceColor(newHex) {
+  if (!modifiedImageData) return;
+
+  const data = modifiedImageData.data;
+
+  const targetRgb = hexToRgb(selectedColor);
+  const replacementRgb = hexToRgb(newHex);
+
+  const tolerance = 50;
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (
+      Math.abs(data[i] - targetRgb.r) <= tolerance &&
+      Math.abs(data[i + 1] - targetRgb.g) <= tolerance &&
+      Math.abs(data[i + 2] - targetRgb.b) <= tolerance
+    ) {
+      data[i] = replacementRgb.r;
+      data[i + 1] = replacementRgb.g;
+      data[i + 2] = replacementRgb.b;
+    }
+  }
+
+  drawModifiedImageFromImageData();
+}
+
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16),
+      }
+    : null;
+}
+
+function saveModifiedImageOriginalSize() {
+  if (!modifiedImageData) return;
+
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = modifiedImageData.width;
+  tempCanvas.height = modifiedImageData.height;
+  const tempCtx = tempCanvas.getContext("2d");
+  tempCtx.putImageData(modifiedImageData, 0, 0);
+
+  if (originalFileType === "image/bmp") {
+    const bmpBlob = canvasToBMP(tempCanvas);
+    const url = URL.createObjectURL(bmpBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "imagen-modificada.bmp";
+    link.click();
+    URL.revokeObjectURL(url);
+  } else if (originalFileType === "image/jpeg" || originalFileType === "image/jpg") {
+    const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.92);
+    downloadDataUrl(dataUrl, "imagen-modificada.jpg");
+  } else {
+    const dataUrl = tempCanvas.toDataURL("image/png");
+    downloadDataUrl(dataUrl, "imagen-modificada.png");
+  }
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  link.click();
+}
+
+// Función para convertir canvas a BMP Blob
+function canvasToBMP(canvas) {
+  const w = canvas.width;
+  const h = canvas.height;
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const pixels = imgData.data;
+
+  const headerSize = 54;
+  const rowSize = Math.floor((24 * w + 31) / 32) * 4;
+  const pixelArraySize = rowSize * h;
+  const fileSize = headerSize + pixelArraySize;
+
+  const buffer = new ArrayBuffer(fileSize);
+  const dv = new DataView(buffer);
+
+  // BMP Header
+  dv.setUint8(0, 0x42); // B
+  dv.setUint8(1, 0x4D); // M
+  dv.setUint32(2, fileSize, true); // file size
+  dv.setUint32(6, 0, true); // reserved
+  dv.setUint32(10, headerSize, true); // pixel data offset
+
+  // DIB Header (BITMAPINFOHEADER)
+  dv.setUint32(14, 40, true); // DIB header size
+  dv.setInt32(18, w, true); // width
+  dv.setInt32(22, -h, true); // negative height for top-down bitmap
+  dv.setUint16(26, 1, true); // planes
+  dv.setUint16(28, 24, true); // bits per pixel
+  dv.setUint32(30, 0, true); // compression (none)
+  dv.setUint32(34, pixelArraySize, true); // image size
+  dv.setInt32(38, 2835, true); // horizontal resolution (72 DPI)
+  dv.setInt32(42, 2835, true); // vertical resolution (72 DPI)
+  dv.setUint32(46, 0, true); // colors in palette
+  dv.setUint32(50, 0, true); // important colors
+
+  // Pixel data
+  let pos = headerSize;
+  const padding = rowSize - w * 3;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      dv.setUint8(pos++, pixels[i + 2]); // Blue
+      dv.setUint8(pos++, pixels[i + 1]); // Green
+      dv.setUint8(pos++, pixels[i]);     // Red
+    }
+    for (let p = 0; p < padding; p++) {
+      dv.setUint8(pos++, 0);
+    }
+  }
+
+  return new Blob([buffer], { type: "image/bmp" });
+}
+
+document.getElementById("saveBtn").addEventListener("click", saveModifiedImageOriginalSize);
+
+document.getElementById("zoomIn").addEventListener("click", () => {
+  if (zoomLevel < maxZoom) {
+    zoomLevel += zoomStep;
+    drawOriginalImage();
+  }
+});
+document.getElementById("zoomOut").addEventListener("click", () => {
+  if (zoomLevel > minZoom) {
+    zoomLevel -= zoomStep;
+    drawOriginalImage();
+  }
+});
+</script>
+</body>
+</html>
